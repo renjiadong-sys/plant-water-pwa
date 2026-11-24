@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="light" />
+<meta name="theme-color" content="#f2f5f1" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>植物浇水打卡</title>
+<link rel="manifest" href="./manifest.json" />
+<link rel="icon" href="./icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="./icon.svg" />
+<style>
+  :root{
+    --bg:#f2f5f1;
+    --card:#ffffff;
+    --ink:#1b2a1f;
+    --muted:#77877c;
+    --line:#e3eae0;
+    --green:#2f7d3b;
+    --green-soft:#e7f2e5;
+    --amber:#b4791a;
+    --amber-soft:#faf0da;
+    --red:#c1453c;
+    --red-soft:#fbe9e7;
+    --radius:18px;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ margin:0; }
+  body{
+    min-height:100dvh;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Noto Sans SC","Microsoft YaHei",sans-serif;
+    padding:max(10px, env(safe-area-inset-top)) 14px calc(96px + env(safe-area-inset-bottom));
+    -webkit-text-size-adjust:100%;
+  }
+  header{
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding:10px 4px 14px;
+  }
+  h1{ font-size:22px; margin:0; letter-spacing:.5px; }
+  .head-right{ display:flex; align-items:baseline; gap:12px; }
+  #summary{ font-size:13px; color:var(--muted); }
+  #backupBtn{
+    border:0; background:transparent; color:var(--muted);
+    font-size:12.5px; font-family:inherit; padding:0; cursor:pointer;
+    text-decoration:underline; text-underline-offset:2px;
+  }
+
+  /* ---------- 视图切换：布局与排序 ---------- */
+  .toolbar{ display:flex; justify-content:space-between; gap:8px; padding:0 2px 10px; }
+  .seg{ display:flex; background:#e8eee5; border-radius:10px; padding:3px; }
+  .seg button{
+    border:0; background:transparent; color:var(--muted);
+    font-size:12px; font-family:inherit; padding:5px 9px; border-radius:8px;
+    cursor:pointer; white-space:nowrap;
+  }
+  .seg button.on{
+    background:#fff; color:var(--ink); font-weight:600;
+    box-shadow:0 1px 2px rgba(0,0,0,.08);
+  }
+
+  /* 待浇水提醒条：同时是筛选开关，没有超期植物时不占位 */
+  #dueBar{
+    display:block; width:100%; margin:0 0 10px; padding:8px 12px;
+    border:1px solid #efdcb6; border-radius:12px;
+    background:var(--amber-soft); color:var(--amber);
+    font-size:12.5px; font-family:inherit; text-align:left; cursor:pointer;
+  }
+  #dueBar[hidden]{ display:none; }
+  #dueBar.on{ background:var(--amber); border-color:var(--amber); color:#fff; }
+
+  /* ---------- 植物卡片 ---------- */
+  .card{
+    position:relative; overflow:hidden;
+    background:var(--card);
+    border-radius:15px;
+    padding:11px 13px 10px;
+    margin-bottom:8px;
+    box-shadow:0 1px 2px rgba(20,40,20,.05), 0 6px 14px -12px rgba(20,40,20,.4);
+  }
+  .card::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:var(--accent);
+  }
+  .card.l0{ --accent:#9aa79c; }
+  .card.l1{ --accent:var(--green); }
+  .card.l2{ --accent:var(--amber); }
+  .card.l3{ --accent:var(--red); }
+
+  .row{ display:flex; align-items:center; gap:8px; }
+  .name{
+    flex:1; min-width:0;
+    font-size:17px; font-weight:600; margin:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .more{
+    flex:none; width:30px; height:30px; border:0; border-radius:9px;
+    background:transparent; color:var(--muted); font-size:20px; line-height:1;
+    cursor:pointer;
+  }
+  .more:active{ background:#f0f3ee; }
+
+  /* 信息区固定两行：首行放浇水状态，次行放平均值与更早记录，超出裁切 */
+  .meta{
+    display:flex; flex-wrap:nowrap; gap:0 10px;
+    margin-top:2px; font-size:11.5px; color:var(--muted);
+    white-space:nowrap; overflow:hidden;
+  }
+  .meta span{ flex:none; }
+  .sub{
+    display:flex; flex-wrap:nowrap; gap:0 10px;
+    height:15px; margin-top:1px;
+    font-size:11px; color:var(--muted);
+    white-space:nowrap; overflow:hidden;
+  }
+  .sub span{ flex:none; }
+  .days{ display:flex; align-items:baseline; gap:6px; margin:6px 0 8px; }
+  .days .num{
+    font-size:34px; font-weight:700; line-height:1;
+    color:var(--accent); font-variant-numeric:tabular-nums;
+  }
+  .days .unit{ font-size:13px; color:var(--muted); white-space:nowrap; }
+  /* 超期角标：未浇水天数达到平均间隔时出现，靠右对齐不挤占天数 */
+  .flag{
+    flex:none; margin-left:auto; padding:0 6px; border-radius:6px;
+    background:var(--amber-soft); color:var(--amber);
+    font-size:10.5px; font-weight:600; line-height:17px; height:17px;
+    align-self:center; white-space:nowrap;
+  }
+
+  /* 浇水与撤销共用一行，撤销出现时不改变卡片高度 */
+  .waterrow{ display:flex; gap:6px; }
+  .water{
+    flex:1; min-width:0; height:40px; border:0; border-radius:12px;
+    background:var(--accent); color:#fff;
+    font-size:16px; font-weight:600; font-family:inherit;
+    cursor:pointer; transition:transform .08s ease, background .2s ease;
+  }
+  .water:active{ transform:scale(.985); }
+  .water.done{ background:var(--green-soft); color:var(--green); }
+
+  .undo{
+    flex:none; width:48px; height:40px; padding:0;
+    border:1px solid var(--line); border-radius:12px;
+    background:#fafbf9; color:var(--muted);
+    font-size:12px; font-family:inherit; cursor:pointer;
+  }
+
+  /* ---------- 卡片内的重命名 / 删除 ---------- */
+  .actions{ display:none; gap:8px; margin-top:10px; }
+  .card.open .actions{ display:flex; }
+  .actions button{
+    flex:1; height:38px; border:1px solid var(--line); border-radius:11px;
+    background:#fafbf9; color:var(--ink); font-size:14px; font-family:inherit;
+    cursor:pointer;
+  }
+  .actions button.danger{ color:var(--red); border-color:#f0d8d5; background:var(--red-soft); }
+
+  .empty{
+    text-align:center; color:var(--muted); font-size:14px; line-height:1.9;
+    padding:64px 20px;
+  }
+
+  /* ---------- 网格视图：两列紧凑卡片 ---------- */
+  main.grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start;
+  }
+  main.grid .card{ margin-bottom:0; padding:11px 10px 10px; }
+  main.grid .name{ font-size:14px; }
+  main.grid .meta{ flex-direction:column; gap:0; font-size:10.5px; }
+  main.grid .days{ margin:5px 0 7px; gap:5px; height:31px; }
+  main.grid .days .num{ font-size:30px; }
+  main.grid .days .unit{ font-size:11px; }
+  /* 窄卡片放不下角标和单位，超期时角标取代「天未浇水」 */
+  main.grid .card.due .days .unit{ display:none; }
+  main.grid .flag{ font-size:10px; padding:0 5px; }
+  main.grid .sub{ height:14px; font-size:10.5px; }
+  main.grid .sub .prev{ display:none; }
+  main.grid .water{ height:40px; border-radius:12px; font-size:14px; }
+  main.grid .undo{ width:40px; height:40px; border-radius:12px; font-size:11px; }
+  main.grid .actions{ flex-wrap:wrap; }
+  main.grid .actions button{ flex:1 1 100%; height:34px; font-size:13px; }
+
+  /* ---------- 底部添加按钮 ---------- */
+  #addBtn{
+    position:fixed; left:14px; right:14px;
+    bottom:calc(14px + env(safe-area-inset-bottom));
+    height:52px; border:0; border-radius:16px;
+    background:#1f2b22; color:#fff;
+    font-size:16px; font-weight:600; font-family:inherit;
+    box-shadow:0 12px 24px -12px rgba(0,0,0,.55);
+    cursor:pointer;
+  }
+  #addBtn:active{ transform:scale(.99); }
+
+  /* ---------- 输入弹窗 ---------- */
+  dialog{
+    width:min(92vw, 380px);
+    border:0; border-radius:20px; padding:20px;
+    background:var(--card); color:var(--ink);
+  }
+  dialog::backdrop{ background:rgba(14,24,17,.42); }
+  dialog h2{ font-size:17px; margin:0 0 14px; }
+  #dlgInput{
+    width:100%; height:46px;
+    border:1px solid var(--line); border-radius:12px;
+    background:#f7faf6; color:var(--ink);
+    padding:0 14px; font-size:16px; font-family:inherit;
+    outline:none;
+  }
+  #dlgInput:focus{ border-color:var(--green); background:#fff; }
+  .hint{ margin:10px 2px 0; font-size:12.5px; color:var(--muted); }
+  .dlg-actions{ display:flex; gap:10px; margin-top:16px; }
+  .dlg-actions button{
+    flex:1; height:44px; border-radius:12px; border:0;
+    font-size:15px; font-weight:600; font-family:inherit; cursor:pointer;
+  }
+  .dlg-actions .ghost{ background:#f0f3ee; color:var(--ink); }
+  .dlg-actions .primary{ background:var(--green); color:#fff; }
+
+  /* ---------- 浇水历史弹窗 ---------- */
+  .hist-sub{ margin:0 0 4px; font-size:12.5px; color:var(--muted); }
+  #histList{
+    list-style:none; margin:8px 0 0; padding:0;
+    max-height:52vh; overflow:auto;
+  }
+  #histList li{
+    display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+    padding:10px 2px; border-bottom:1px solid var(--line); font-size:14px;
+  }
+  #histList li:last-child{ border-bottom:0; }
+  #histList .ago{ flex:none; color:var(--muted); font-size:12.5px; }
+  #histList .none{ display:block; text-align:center; color:var(--muted); font-size:13px; padding:22px 0; }
+</style>
+</head>
+<body>
+
+<!-- 顶部：标题、植物数量与备份入口 -->
+<header>
+  <h1>植物浇水</h1>
+  <div class="head-right">
+    <span id="summary"></span>
+    <button id="backupBtn" type="button">备份</button>
+  </div>
+</header>
+
+<!-- 视图切换：左侧选布局，右侧选排序 -->
+<div class="toolbar" id="toolbar">
+  <div class="seg" id="layoutSeg">
+    <button type="button" data-layout="list">列表</button>
+    <button type="button" data-layout="grid">网格</button>
+  </div>
+  <div class="seg" id="sortSeg">
+    <button type="button" data-sort="days" data-label="浇水天数">浇水天数</button>
+    <button type="button" data-sort="freq" data-label="频率">频率</button>
+  </div>
+</div>
+
+<!-- 待浇水提醒条，同时作为筛选开关 -->
+<button id="dueBar" type="button" hidden></button>
+
+<!-- 植物列表 -->
+<main id="list"></main>
+
+<button id="addBtn" type="button">添加植物</button>
+
+<!-- 添加 / 重命名共用的输入弹窗 -->
+<dialog id="dlg">
+  <form id="dlgForm" method="dialog">
+    <h2 id="dlgTitle">添加植物</h2>
+    <input id="dlgInput" type="text" maxlength="20" placeholder="植物名，如：绿萝"
+           autocomplete="off" enterkeyhint="done" />
+    <p class="hint" id="dlgHint">新增的植物处于未浇状态，点卡片上的按钮才算第一次浇水</p>
+    <div class="dlg-actions">
+      <button type="button" id="dlgCancel" class="ghost">取消</button>
+      <button type="submit" class="primary">确定</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 单盆植物的浇水历史 -->
+<dialog id="histDlg">
+  <h2 id="histTitle"></h2>
+  <p class="hist-sub" id="histSub"></p>
+  <ul id="histList"></ul>
+  <div class="dlg-actions">
+    <button type="button" id="histClose" class="ghost">关闭</button>
+  </div>
+</dialog>
+
+<!-- 备份与恢复 -->
+<dialog id="backupDlg">
+  <h2>备份与恢复</h2>
+  <p class="hint">导出会下载一个 JSON 文件；导入会用文件内容覆盖当前全部记录。</p>
+  <div class="dlg-actions">
+    <button type="button" id="exportBtn" class="ghost">导出备份</button>
+    <button type="button" id="importBtn" class="primary">导入备份</button>
+  </div>
+  <div class="dlg-actions">
+    <button type="button" id="backupClose" class="ghost">关闭</button>
+  </div>
+  <input id="importFile" type="file" accept=".json,application/json" hidden />
+</dialog>
+
+<script>
+(() => {
+  'use strict';
+
+  /* ============ 数据层：所有记录只保存在本机 localStorage ============ */
+  const KEY = 'plantWater.v1';
+  let state = load();
+
+  function load() {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return { plants: [] };
+    const data = JSON.parse(raw);
+    return { plants: Array.isArray(data.plants) ? data.plants : [] };
+  }
+  function save() {
+    localStorage.setItem(KEY, JSON.stringify({ plants: state.plants }));
+  }
+
+  /* ============ 视图偏好：布局与排序，同样只存本机 ============ */
+  const PREFS_KEY = 'plantWater.prefs.v1';
+  let prefs = loadPrefs();
+
+  function loadPrefs() {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return { layout: 'list', sort: 'days', dirs: { days: 'desc', freq: 'asc' } };
+    const p = JSON.parse(raw);
+    return {
+      layout: p.layout === 'grid' ? 'grid' : 'list',
+      sort: p.sort === 'freq' ? 'freq' : 'days',
+      // 每种排序各自记住自己的方向：天数默认多的在前，频率默认间隔短的在前
+      dirs: {
+        days: p.dirs && p.dirs.days === 'asc' ? 'asc' : 'desc',
+        freq: p.dirs && p.dirs.freq === 'desc' ? 'desc' : 'asc'
+      }
+    };
+  }
+  function savePrefs() {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  }
+
+  /* ============ 日期工具：全部按本地自然日计算 ============ */
+  const pad = n => String(n).padStart(2, '0');
+  function todayStr() {
+    const d = new Date();
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  // 距指定日期已过去多少天：0 表示今天
+  function daysSince(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((startOfToday - new Date(y, m - 1, d)) / 86400000);
+  }
+  const shortDate = s => s.slice(5);
+
+  // 平均浇水间隔（天）：相邻两次浇水间隔的平均值；记录少于 2 次时无法计算，返回 null
+  function avgInterval(p) {
+    const h = p.history;
+    if (h.length < 2) return null;
+    let total = 0;
+    for (let i = 0; i < h.length - 1; i++) {
+      total += daysSince(h[i + 1]) - daysSince(h[i]);
+    }
+    return total / (h.length - 1);
+  }
+  const fmtDays = v => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
+  // 是否该浇水：未浇水天数达到平均间隔；算不出平均值的（记录不足 2 次）不提醒
+  function needsWater(p) {
+    const avg = avgInterval(p);
+    return avg !== null && daysOf(p) >= avg;
+  }
+  const WEEK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  function weekday(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return WEEK[new Date(y, m - 1, d).getDay()];
+  }
+  const esc = s => s.replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ============ 渲染：按当前偏好决定排序与布局 ============ */
+  const list = document.getElementById('list');
+  const summaryEl = document.getElementById('summary');
+  const toolbarEl = document.getElementById('toolbar');
+  const dueBar = document.getElementById('dueBar');
+  let menuOpenId = null;
+  let dueOnly = false;   // 只看该浇水的植物
+
+  // 未浇水天数；从未浇过视为最需要浇
+  function daysOf(p) {
+    return p.lastWateredAt ? daysSince(p.lastWateredAt) : Infinity;
+  }
+
+  function render() {
+    const plants = [...state.plants];
+    const dir = prefs.dirs[prefs.sort] === 'asc' ? 1 : -1;
+
+    if (prefs.sort === 'freq') {
+      // 按平均浇水间隔排序；算不出频率的（记录不足 2 次）始终排最后
+      plants.sort((a, b) => {
+        const fa = avgInterval(a);
+        const fb = avgInterval(b);
+        if (fa === null && fb === null) return a.createdAt - b.createdAt;
+        if (fa === null) return 1;
+        if (fb === null) return -1;
+        return (fa - fb) * dir || a.createdAt - b.createdAt;
+      });
+    } else {
+      // 按未浇水天数排序；从未浇过的视为最久
+      plants.sort((a, b) => (daysOf(a) - daysOf(b)) * dir || a.createdAt - b.createdAt);
+    }
+
+    const dueCount = plants.filter(needsWater).length;
+    const shown = dueOnly ? plants.filter(needsWater) : plants;
+
+    list.className = prefs.layout === 'grid' ? 'grid' : '';
+    toolbarEl.hidden = !plants.length;
+    summaryEl.textContent = plants.length ? `共 ${plants.length} 盆` : '';
+
+    // 提醒条：有超期植物或正在筛选时出现，点击切换只看超期植物
+    dueBar.hidden = !dueCount && !dueOnly;
+    dueBar.classList.toggle('on', dueOnly);
+    dueBar.textContent = dueOnly
+      ? `只看该浇水的 ${dueCount} 盆 · 显示全部`
+      : `${dueCount} 盆该浇水了 · 只看这些`;
+
+    document.querySelectorAll('#layoutSeg button')
+      .forEach(b => b.classList.toggle('on', b.dataset.layout === prefs.layout));
+    document.querySelectorAll('#sortSeg button').forEach(b => {
+      const on = b.dataset.sort === prefs.sort;
+      b.classList.toggle('on', on);
+      // 当前排序的按钮带方向箭头，箭头随升降序变化
+      b.textContent = on
+        ? `${b.dataset.label} ${prefs.dirs[b.dataset.sort] === 'asc' ? '↑' : '↓'}`
+        : b.dataset.label;
+    });
+
+    if (!plants.length) {
+      list.innerHTML = '<div class="empty">还没有植物<br>点下方按钮添加第一盆</div>';
+      return;
+    }
+    if (!shown.length) {
+      list.innerHTML = '<div class="empty">没有该浇水的植物<br>点上方提醒条显示全部</div>';
+      return;
+    }
+    list.innerHTML = shown.map(cardHTML).join('');
+  }
+
+  function cardHTML(p) {
+    const d = daysOf(p);
+    const watered = d === 0;                                   // 今天已经浇过
+    const never = d === Infinity;                              // 还没浇过
+    const level = never ? 'l0' : d <= 2 ? 'l1' : d <= 5 ? 'l2' : 'l3';
+    const earlier = p.history.slice(1, 4).map(shortDate).join(' · ');
+    const avg = avgInterval(p);
+    const due = needsWater(p);
+    return `
+      <article class="card ${level}${due ? ' due' : ''}${menuOpenId === p.id ? ' open' : ''}" data-id="${p.id}">
+        <div class="row">
+          <h2 class="name">${esc(p.name)}</h2>
+          <button class="more" data-act="menu" aria-label="更多操作">···</button>
+        </div>
+        <div class="meta">
+          <span>${never ? '还没浇过水' : '上次浇水 ' + p.lastWateredAt}</span>
+          <span>共 ${p.history.length} 次</span>
+        </div>
+        <div class="sub">
+          ${avg === null
+            ? `<span>${p.history.length ? '再浇 1 次看频率' : '浇 2 次后看频率'}</span>`
+            : `<span>平均 ${fmtDays(avg)} 天/次</span>`}
+          ${earlier ? `<span class="prev">此前：${earlier}</span>` : ''}
+        </div>
+        <div class="days">
+          <span class="num">${never ? '—' : d}</span>
+          <span class="unit">${never ? '还没浇水' : watered ? '今天已浇' : '天未浇水'}</span>
+          ${due ? '<span class="flag">该浇水</span>' : ''}
+        </div>
+        <div class="waterrow">
+          <button class="water${watered ? ' done' : ''}" data-act="water"${watered ? ' disabled' : ''}>
+            ${watered ? '今天已浇过' : '浇水打卡'}
+          </button>
+          ${watered ? '<button class="undo" data-act="undo">撤销</button>' : ''}
+        </div>
+        <div class="actions">
+          <button data-act="rename">重命名</button>
+          <button data-act="delete" class="danger">删除</button>
+          <button data-act="close">取消</button>
+        </div>
+      </article>`;
+  }
+
+  /* ============ 业务动作 ============ */
+  // 浇水：把上次浇水日期改为今天，天数从 0 重新开始
+  function waterPlant(id) {
+    const p = state.plants.find(x => x.id === id);
+    if (!p) return;
+    const today = todayStr();
+    if (!p.history.includes(today)) p.history.unshift(today);
+    p.history = p.history.slice(0, 60);
+    p.lastWateredAt = today;
+    save();
+    render();
+    if (navigator.vibrate) navigator.vibrate(10);
+  }
+
+  // 撤销：删掉今天的记录，把上次浇水日期还原为更早那次
+  function undoWater(id) {
+    const p = state.plants.find(x => x.id === id);
+    if (!p) return;
+    if (p.history[0] === todayStr()) p.history.shift();
+    p.lastWateredAt = p.history[0] || null;
+    save();
+    render();
+  }
+
+  // 列表内点击统一走事件委托；点卡片空白处打开该植物的浇水历史
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) {
+      const card = e.target.closest('.card');
+      if (card) openHistory(card.dataset.id);
+      return;
+    }
+    const id = btn.closest('.card').dataset.id;
+    const act = btn.dataset.act;
+
+    if (act === 'water') { waterPlant(id); return; }
+    if (act === 'undo') { undoWater(id); return; }
+    if (act === 'menu') { menuOpenId = menuOpenId === id ? null : id; render(); return; }
+    if (act === 'close') { menuOpenId = null; render(); return; }
+
+    const plant = state.plants.find(x => x.id === id);
+    if (!plant) return;
+    if (act === 'rename') {
+      menuOpenId = null;
+      render();
+      openDialog('重命名植物', plant.name, id);
+      return;
+    }
+    if (act === 'delete' && confirm(`删除「${plant.name}」及其浇水记录？`)) {
+      state.plants = state.plants.filter(x => x.id !== id);
+      menuOpenId = null;
+      save();
+      render();
+    }
+  });
+
+  /* ============ 添加 / 重命名弹窗 ============ */
+  const dlg = document.getElementById('dlg');
+  const dlgTitle = document.getElementById('dlgTitle');
+  const dlgInput = document.getElementById('dlgInput');
+  const dlgForm = document.getElementById('dlgForm');
+  let editingId = null;
+
+  function openDialog(title, value, id) {
+    editingId = id || null;
+    dlgTitle.textContent = title;
+    dlgInput.value = value || '';
+    document.getElementById('dlgHint').hidden = !!id;
+    dlg.showModal();
+    setTimeout(() => dlgInput.focus(), 0);
+  }
+
+  dlgForm.addEventListener('submit', e => {
+    e.preventDefault();
+    const name = dlgInput.value.trim();
+    if (!name) { dlgInput.focus(); return; }
+
+    if (editingId) {
+      const p = state.plants.find(x => x.id === editingId);
+      if (p) p.name = name;
+    } else {
+      // 新植物只是登记名字，还没有任何浇水记录
+      state.plants.push({
+        id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name,
+        createdAt: Date.now(),
+        lastWateredAt: null,
+        history: []
+      });
+    }
+    save();
+    render();
+    dlg.close();
+  });
+
+  document.getElementById('dlgCancel').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('close', () => { editingId = null; dlgInput.value = ''; });
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  document.getElementById('addBtn').addEventListener('click', () => openDialog('添加植物', '', null));
+
+  /* ============ 备份：导出 JSON 文件，导入覆盖本机记录 ============ */
+  const backupDlg = document.getElementById('backupDlg');
+  const importFile = document.getElementById('importFile');
+
+  document.getElementById('backupBtn').addEventListener('click', () => backupDlg.showModal());
+  document.getElementById('backupClose').addEventListener('click', () => backupDlg.close());
+  backupDlg.addEventListener('click', e => { if (e.target === backupDlg) backupDlg.close(); });
+
+  // 导出：把当前全部植物记录下载成带日期的 JSON 文件
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify({ plants: state.plants }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `植物浇水备份-${todayStr()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // 导入：读取用户选择的文件，校验结构后整份替换并落盘
+  document.getElementById('importBtn').addEventListener('click', () => importFile.click());
+
+  importFile.addEventListener('change', async () => {
+    const file = importFile.files[0];
+    importFile.value = '';                 // 清空后才能再次选择同一个文件
+    if (!file) return;
+
+    let data;
+    try {
+      data = JSON.parse(await file.text());
+    } catch {
+      alert('文件不是有效的备份 JSON');
+      return;
+    }
+    const valid = data && Array.isArray(data.plants) && data.plants.every(p =>
+      p && typeof p.id === 'string' && typeof p.name === 'string' &&
+      typeof p.createdAt === 'number' && Array.isArray(p.history));
+    if (!valid) {
+      alert('文件里没有可用的植物记录');
+      return;
+    }
+    if (!confirm(`导入将覆盖当前的 ${state.plants.length} 盆记录，确定继续？`)) return;
+
+    state.plants = data.plants;
+    save();
+    render();
+    backupDlg.close();
+  });
+
+  /* ============ 浇水历史弹窗：列出每次浇水的日期 ============ */
+  const histDlg = document.getElementById('histDlg');
+  const histTitle = document.getElementById('histTitle');
+  const histSub = document.getElementById('histSub');
+  const histList = document.getElementById('histList');
+
+  function openHistory(id) {
+    const p = state.plants.find(x => x.id === id);
+    if (!p) return;
+
+    histTitle.textContent = p.name;
+    const avg = avgInterval(p);
+    histSub.textContent = p.history.length
+      ? `共 ${p.history.length} 次浇水记录` + (avg === null ? '' : ` · 平均 ${fmtDays(avg)} 天一次`)
+      : '还没有浇水记录';
+
+    if (!p.history.length) {
+      histList.innerHTML = '<li class="none">还没有浇过水</li>';
+    } else {
+      histList.innerHTML = p.history.map(date => {
+        const gap = daysSince(date);
+        const ago = gap === 0 ? '今天' : `${gap} 天前`;
+        return `<li><span>${date} ${weekday(date)}</span><span class="ago">${ago}</span></li>`;
+      }).join('');
+    }
+    histDlg.showModal();
+  }
+
+  document.getElementById('histClose').addEventListener('click', () => histDlg.close());
+  histDlg.addEventListener('click', e => { if (e.target === histDlg) histDlg.close(); });
+
+  /* ============ 切换布局 / 排序 ============ */
+  dueBar.addEventListener('click', () => {
+    dueOnly = !dueOnly;
+    render();
+  });
+
+  document.getElementById('layoutSeg').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-layout]');
+    if (!btn || btn.dataset.layout === prefs.layout) return;
+    prefs.layout = btn.dataset.layout;
+    savePrefs();
+    render();
+  });
+
+  document.getElementById('sortSeg').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-sort]');
+    if (!btn) return;
+    const next = btn.dataset.sort;
+    if (next === prefs.sort) {
+      // 再点一次当前排序按钮，切换升序 / 降序
+      prefs.dirs[next] = prefs.dirs[next] === 'asc' ? 'desc' : 'asc';
+    } else {
+      prefs.sort = next;
+    }
+    savePrefs();
+    render();
+  });
+
+  /* ============ 启动 ============ */
+  render();
+
+  // 回到前台时重算天数，跨零点后计数会自动更新
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) render();
+  });
+
+  // 注册 Service Worker，使网页可安装到桌面并离线打开
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(err => console.warn('Service Worker 注册失败', err));
+    });
+  }
+})();
+</script>
+</body>
+</html>
