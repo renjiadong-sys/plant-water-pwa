@@ -1,5 +1,5 @@
 // 缓存版本：改动 index.html / manifest / icon 后，把版本号加一即可让手机拿到新版本
-const CACHE = 'plant-water-v4';
+const CACHE = 'plant-water-v5';
 const ASSETS = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', event => {

@@ -260,10 +260,11 @@
     padding:13px 16px; border-bottom:1px solid var(--line);
   }
   .ai-head h2{ font-size:16px; margin:0; }
-  #aiClose{
+  #aiClose, #aiKeyEdit{
     border:0; background:transparent; color:var(--muted);
     font-size:13px; font-family:inherit; padding:4px; cursor:pointer;
   }
+  .ai-head-ops{ display:flex; gap:12px; }
   #aiLog{ flex:1; overflow:auto; padding:12px 14px; }
   .msg{ margin:0 0 10px; }
   .msg .bubble{
@@ -394,7 +395,10 @@
 <dialog id="aiDlg">
   <div class="ai-head">
     <h2>AI 助手</h2>
-    <button type="button" id="aiClose">关闭</button>
+    <div class="ai-head-ops">
+      <button type="button" id="aiKeyEdit">改 Key</button>
+      <button type="button" id="aiClose">关闭</button>
+    </div>
   </div>
   <div id="aiLog"></div>
   <div id="aiKeyBox" hidden>
@@ -874,7 +878,7 @@
   document.getElementById('aiClose').addEventListener('click', () => aiDlg.close());
   aiDlg.addEventListener('click', e => { if (e.target === aiDlg) aiDlg.close(); });
 
-  // Key 只写进本机 localStorage，不进入页面代码
+  // 只写进本机 localStorage，覆盖旧值即可换 Key
   document.getElementById('aiKeySave').addEventListener('click', () => {
     const key = aiKeyInput.value.trim();
     if (!key) return;
@@ -886,6 +890,13 @@
     aiSend.disabled = false;
     addMsg('bot', 'Key 已保存在本机，可以开始提问了。');
     aiInput.focus();
+  });
+
+  // 填错或想换 Key 时重新展开输入区，保存后直接覆盖
+  document.getElementById('aiKeyEdit').addEventListener('click', () => {
+    aiKeyBox.hidden = false;
+    aiKeyInput.value = '';
+    aiKeyInput.focus();
   });
 
   // 只接受能对应到现有植物、日期合法的操作
