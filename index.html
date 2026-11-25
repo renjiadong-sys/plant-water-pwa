@@ -328,6 +328,11 @@
     width:100%; height:38px; border:0; border-radius:10px;
     background:var(--ink); color:#fff; font-size:14px; font-family:inherit; cursor:pointer;
   }
+  #aiClearChat{
+    width:100%; height:34px; margin-top:8px;
+    border:1px solid var(--line); border-radius:10px;
+    background:#fff; color:var(--muted); font-size:13px; font-family:inherit; cursor:pointer;
+  }
 </style>
 </head>
 <body>
@@ -419,6 +424,7 @@
     <textarea id="aiExtraPrompt" rows="3" placeholder="例如：回答尽量简短，不要用列表"></textarea>
     <label class="set-check"><input type="checkbox" id="aiThinking" /> 深度思考（更准但更慢，默认开启）</label>
     <button type="button" id="aiSetSave">保存设置</button>
+    <button type="button" id="aiClearChat">清空对话记录</button>
   </div>
   <form id="aiForm">
     <textarea id="aiInput" rows="1" placeholder="例如：哪些植物该浇水了？" autocomplete="off"></textarea>
@@ -859,6 +865,7 @@
   // DeepSeek 的接口是无状态的，服务端不保存会话，历史每轮由前端带上去
   const AI_MODEL = 'deepseek-v4-flash';
   const AI_SETTINGS_FIELD = 'plantWater.aiSettings.v1';
+  const AI_HISTORY_FIELD = 'plantWater.aiHistory.v1';
   const AI_LEGACY_KEY_FIELD = 'plantWater.aiKey.v1';
   const AI_SYSTEM = `你是植物浇水记录助手。用户用中文描述情况或提问，你只依据提供的植物数据回答，不要虚构植物和日期。
 
@@ -883,7 +890,7 @@
   const aiSetBtn = document.getElementById('aiSetBtn');
   let aiSettings = loadAiSettings();
   let aiBusy = false;
-  let aiHistory = [];   // 同一次打开页面期间的问答上下文，刷新后清空
+  let aiHistory = loadAiHistory();   // 对话上下文存本机，刷新后仍在
 
   // 设置只存本机；旧版本单独存的 Key 会被读进来
   function loadAiSettings() {
@@ -904,6 +911,18 @@
   }
   function saveAiSettings() {
     localStorage.setItem(AI_SETTINGS_FIELD, JSON.stringify(aiSettings));
+  }
+
+  function loadAiHistory() {
+    try {
+      const arr = JSON.parse(localStorage.getItem(AI_HISTORY_FIELD) || '[]');
+      return Array.isArray(arr) ? arr : [];
+    } catch {
+      return [];
+    }
+  }
+  function saveAiHistory() {
+    localStorage.setItem(AI_HISTORY_FIELD, JSON.stringify(aiHistory));
   }
   // 把已保存的设置回填到表单，避免默认值与界面不一致
   function syncSettingsForm() {
@@ -955,7 +974,12 @@
     aiInput.disabled = !aiSettings.key;
     aiSend.disabled = !aiSettings.key;
     if (!aiLog.childElementCount) {
-      addMsg('bot', '可以问我哪些植物该浇水了，也可以说「今天给绿萝浇了水」让我更新记录。');
+      if (aiHistory.length) {
+        // 恢复上次的对话，让上下文和界面对得上
+        aiHistory.forEach(m => addMsg(m.role === 'user' ? 'user' : 'bot', m.content));
+      } else {
+        addMsg('bot', '可以问我哪些植物该浇水了，也可以说「今天给绿萝浇了水」让我更新记录。');
+      }
     }
     aiDlg.showModal();
   });
@@ -983,6 +1007,15 @@
     aiSend.disabled = false;
     addMsg('bot', '设置已保存在本机，可以开始提问了。');
     aiInput.focus();
+  });
+
+  // 清空对话只影响上下文，不动植物记录
+  document.getElementById('aiClearChat').addEventListener('click', () => {
+    if (!confirm('清空对话记录？植物浇水数据不受影响。')) return;
+    aiHistory = [];
+    saveAiHistory();
+    aiLog.innerHTML = '';
+    addMsg('bot', '对话已清空，可以重新开始。');
   });
 
   // 只接受能对应到现有植物、日期合法的操作
@@ -1096,7 +1129,7 @@
         { role: 'user', content: text }
       ]
     };
-    if (aiSettings.thinking) payload.reasoning_effort = 'high';
+    if (aiSettings.thinking) payload.reasoning_effort = 'low';
 
     let res;
     try {
@@ -1141,6 +1174,7 @@
     aiHistory.push({ role: 'user', content: text });
     aiHistory.push({ role: 'assistant', content: parsed.reply });
     if (aiHistory.length > 8) aiHistory = aiHistory.slice(-8);
+    saveAiHistory();
     if (Array.isArray(parsed.actions) && parsed.actions.length) showProposal(parsed.actions);
     finish();
   }
