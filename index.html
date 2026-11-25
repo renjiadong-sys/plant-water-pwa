@@ -856,7 +856,8 @@
 
   /* ============ AI 助手：数据交给模型，操作清单确认后才落库 ============ */
   const AI_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-  const AI_MODEL = 'deepseek-flash';
+  // DeepSeek 的接口是无状态的，服务端不保存会话，历史每轮由前端带上去
+  const AI_MODEL = 'deepseek-v4-flash';
   const AI_SETTINGS_FIELD = 'plantWater.aiSettings.v1';
   const AI_LEGACY_KEY_FIELD = 'plantWater.aiKey.v1';
   const AI_SYSTEM = `你是植物浇水记录助手。用户用中文描述情况或提问，你只依据提供的植物数据回答，不要虚构植物和日期。
