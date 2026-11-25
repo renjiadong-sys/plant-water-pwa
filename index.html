@@ -241,11 +241,18 @@
     max-height:52vh; overflow:auto;
   }
   #histList li{
-    display:flex; align-items:baseline; justify-content:space-between; gap:12px;
-    padding:10px 2px; border-bottom:1px solid var(--line); font-size:14px;
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 2px; border-bottom:1px solid var(--line); font-size:14px;
   }
   #histList li:last-child{ border-bottom:0; }
+  #histList .date{ flex:1; min-width:0; }
   #histList .ago{ flex:none; color:var(--muted); font-size:12.5px; }
+  #histList .del{
+    flex:none; width:28px; height:28px; border:0; border-radius:8px;
+    background:transparent; color:var(--muted);
+    font-size:16px; line-height:1; font-family:inherit; cursor:pointer;
+  }
+  #histList .del:active{ background:var(--red-soft); color:var(--red); }
   #histList .none{ display:block; text-align:center; color:var(--muted); font-size:13px; padding:22px 0; }
 
   /* ---------- AI 助手面板 ---------- */
@@ -291,11 +298,12 @@
   .proposal .ok{ background:var(--amber); color:#fff; font-weight:600; }
   .proposal .no{ background:#fff; color:var(--muted); border:1px solid var(--line); }
 
-  #aiForm{ display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--line); }
+  #aiForm{ display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--line); align-items:flex-end; }
   #aiInput{
-    flex:1; min-width:0; height:42px; padding:0 12px;
+    flex:1; min-width:0; height:42px; max-height:120px; padding:10px 12px;
     border:1px solid var(--line); border-radius:11px;
-    background:#f7faf6; color:var(--ink); font-size:15px; font-family:inherit; outline:none;
+    background:#f7faf6; color:var(--ink); font-size:15px; font-family:inherit;
+    line-height:1.4; resize:none; outline:none;
   }
   #aiInput:focus{ border-color:var(--green); background:#fff; }
   #aiSend{
@@ -305,15 +313,18 @@
   }
   #aiSend:disabled{ background:#c8d4c9; cursor:default; }
 
-  #aiKeyBox{ padding:12px 14px; border-top:1px solid var(--line); }
-  #aiKeyBox[hidden]{ display:none; }
-  #aiKeyBox .hint{ margin:0 0 8px; }
-  #aiKeyInput{
-    width:100%; height:40px; padding:0 12px; margin-bottom:8px;
+  #aiSetBox{ padding:12px 14px; border-top:1px solid var(--line); max-height:46vh; overflow:auto; }
+  #aiSetBox[hidden]{ display:none; }
+  .set-label{ display:block; font-size:12px; color:var(--muted); margin:0 0 5px; }
+  #aiKeyInput, #aiExtraPrompt{
+    width:100%; padding:0 12px; margin:0 0 10px;
     border:1px solid var(--line); border-radius:10px;
     background:#f7faf6; color:var(--ink); font-size:14px; font-family:inherit; outline:none;
   }
-  #aiKeySave{
+  #aiKeyInput{ height:40px; }
+  #aiExtraPrompt{ padding:10px 12px; line-height:1.45; min-height:64px; resize:vertical; }
+  .set-check{ display:flex; align-items:center; gap:8px; font-size:13px; margin:0 0 12px; }
+  #aiSetSave{
     width:100%; height:38px; border:0; border-radius:10px;
     background:var(--ink); color:#fff; font-size:14px; font-family:inherit; cursor:pointer;
   }
@@ -396,18 +407,21 @@
   <div class="ai-head">
     <h2>AI 助手</h2>
     <div class="ai-head-ops">
-      <button type="button" id="aiKeyEdit">改 Key</button>
+      <button type="button" id="aiSetBtn">设置</button>
       <button type="button" id="aiClose">关闭</button>
     </div>
   </div>
   <div id="aiLog"></div>
-  <div id="aiKeyBox" hidden>
-    <p class="hint">填入 DeepSeek API Key 后才能对话。Key 只存在这台设备的浏览器里，不会上传到任何服务器。</p>
+  <div id="aiSetBox" hidden>
+    <label class="set-label" for="aiKeyInput">DeepSeek API Key</label>
     <input id="aiKeyInput" type="password" placeholder="sk-..." autocomplete="off" />
-    <button type="button" id="aiKeySave">保存 Key</button>
+    <label class="set-label" for="aiExtraPrompt">附加提示词（可选，会追加在默认规则之后）</label>
+    <textarea id="aiExtraPrompt" rows="3" placeholder="例如：回答尽量简短，不要用列表"></textarea>
+    <label class="set-check"><input type="checkbox" id="aiThinking" /> 深度思考（更准但更慢，默认开启）</label>
+    <button type="button" id="aiSetSave">保存设置</button>
   </div>
   <form id="aiForm">
-    <input id="aiInput" type="text" placeholder="例如：哪些植物该浇水了？" autocomplete="off" />
+    <textarea id="aiInput" rows="1" placeholder="例如：哪些植物该浇水了？" autocomplete="off"></textarea>
     <button type="submit" id="aiSend">发送</button>
   </form>
 </dialog>
@@ -761,7 +775,10 @@
   const histSub = document.getElementById('histSub');
   const histList = document.getElementById('histList');
 
-  function openHistory(id) {
+  let histPlantId = null;
+
+  // 历史列表单独渲染，删除某条后可以原地刷新
+  function renderHistory(id) {
     const p = state.plants.find(x => x.id === id);
     if (!p) return;
 
@@ -773,15 +790,38 @@
 
     if (!p.history.length) {
       histList.innerHTML = '<li class="none">还没有浇过水</li>';
-    } else {
-      histList.innerHTML = p.history.map(date => {
-        const gap = daysSince(date);
-        const ago = gap === 0 ? '今天' : `${gap} 天前`;
-        return `<li><span>${date} ${weekday(date)}</span><span class="ago">${ago}</span></li>`;
-      }).join('');
+      return;
     }
+    histList.innerHTML = p.history.map(date => {
+      const gap = daysSince(date);
+      const ago = gap === 0 ? '今天' : `${gap} 天前`;
+      return `<li><span class="date">${date} ${weekday(date)}</span>
+        <span class="ago">${ago}</span>
+        <button type="button" class="del" data-del="${date}" aria-label="删除这条记录">×</button></li>`;
+    }).join('');
+  }
+
+  function openHistory(id) {
+    if (!state.plants.some(x => x.id === id)) return;
+    histPlantId = id;
+    renderHistory(id);
     histDlg.showModal();
   }
+
+  // 手动删除任意一条记录，删除后按剩下的最新一条重新计时
+  histList.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-del]');
+    if (!btn) return;
+    const date = btn.dataset.del;
+    if (!confirm(`删除 ${date} 的浇水记录？`)) return;
+    const p = state.plants.find(x => x.id === histPlantId);
+    if (!p) return;
+    p.history = p.history.filter(d => d !== date);
+    p.lastWateredAt = p.history[0] || null;
+    save();
+    render();
+    renderHistory(histPlantId);
+  });
 
   document.getElementById('histClose').addEventListener('click', () => histDlg.close());
   histDlg.addEventListener('click', e => { if (e.target === histDlg) histDlg.close(); });
@@ -816,13 +856,17 @@
 
   /* ============ AI 助手：数据交给模型，操作清单确认后才落库 ============ */
   const AI_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-  const AI_KEY_FIELD = 'plantWater.aiKey.v1';
+  const AI_MODEL = 'deepseek-flash';
+  const AI_SETTINGS_FIELD = 'plantWater.aiSettings.v1';
+  const AI_LEGACY_KEY_FIELD = 'plantWater.aiKey.v1';
   const AI_SYSTEM = `你是植物浇水记录助手。用户用中文描述情况或提问，你只依据提供的植物数据回答，不要虚构植物和日期。
 
 需要改动记录时在 actions 里给出操作，用户确认后才会执行：
 - water：记录一次浇水，必须带 plantId 和 date（YYYY-MM-DD，不能晚于今天）
-- undo：撤销某盆植物今天的浇水，必须带 plantId
+- undo：删除某一天的浇水记录，必须带 plantId；date 指明是哪一天，省略表示今天
 - add：新增一盆植物，带 name
+
+对话里会带上此前的问答，请结合上下文理解用户的意思，不要重复追问已经说过的信息。植物名对不上时选最接近的一盆，并在 reply 里说明你理解成了哪一盆。
 
 只输出 JSON，格式：{"reply":"给用户看的中文回答","actions":[]}，不需要改动时 actions 为空数组。`;
 
@@ -831,10 +875,42 @@
   const aiForm = document.getElementById('aiForm');
   const aiInput = document.getElementById('aiInput');
   const aiSend = document.getElementById('aiSend');
-  const aiKeyBox = document.getElementById('aiKeyBox');
+  const aiSetBox = document.getElementById('aiSetBox');
   const aiKeyInput = document.getElementById('aiKeyInput');
-  let aiKey = localStorage.getItem(AI_KEY_FIELD) || '';
+  const aiExtraPrompt = document.getElementById('aiExtraPrompt');
+  const aiThinking = document.getElementById('aiThinking');
+  const aiSetBtn = document.getElementById('aiSetBtn');
+  let aiSettings = loadAiSettings();
   let aiBusy = false;
+  let aiHistory = [];   // 同一次打开页面期间的问答上下文，刷新后清空
+
+  // 设置只存本机；旧版本单独存的 Key 会被读进来
+  function loadAiSettings() {
+    try {
+      const raw = localStorage.getItem(AI_SETTINGS_FIELD);
+      if (raw) {
+        const s = JSON.parse(raw);
+        return {
+          key: typeof s.key === 'string' ? s.key : '',
+          extraPrompt: typeof s.extraPrompt === 'string' ? s.extraPrompt : '',
+          thinking: s.thinking !== false
+        };
+      }
+    } catch {
+      // 存储内容不是合法 JSON 时按未配置处理
+    }
+    return { key: localStorage.getItem(AI_LEGACY_KEY_FIELD) || '', extraPrompt: '', thinking: true };
+  }
+  function saveAiSettings() {
+    localStorage.setItem(AI_SETTINGS_FIELD, JSON.stringify(aiSettings));
+  }
+  // 把已保存的设置回填到表单，避免默认值与界面不一致
+  function syncSettingsForm() {
+    aiKeyInput.value = aiSettings.key;
+    aiExtraPrompt.value = aiSettings.extraPrompt;
+    aiThinking.checked = aiSettings.thinking;
+  }
+  syncSettingsForm();
 
   // 追加一条消息；bot 消息支持标记为错误态
   function addMsg(kind, text) {
@@ -866,10 +942,17 @@
     };
   }
 
+  // 默认规则后面追加用户自己的要求
+  function aiSystemPrompt() {
+    const extra = aiSettings.extraPrompt.trim();
+    return extra ? AI_SYSTEM + '\n\n用户附加要求：\n' + extra : AI_SYSTEM;
+  }
+
   document.getElementById('aiBtn').addEventListener('click', () => {
-    aiKeyBox.hidden = !!aiKey;
-    aiInput.disabled = !aiKey;
-    aiSend.disabled = !aiKey;
+    aiSetBox.hidden = !!aiSettings.key;
+    aiSetBtn.textContent = aiSetBox.hidden ? '设置' : '收起';
+    aiInput.disabled = !aiSettings.key;
+    aiSend.disabled = !aiSettings.key;
     if (!aiLog.childElementCount) {
       addMsg('bot', '可以问我哪些植物该浇水了，也可以说「今天给绿萝浇了水」让我更新记录。');
     }
@@ -878,28 +961,32 @@
   document.getElementById('aiClose').addEventListener('click', () => aiDlg.close());
   aiDlg.addEventListener('click', e => { if (e.target === aiDlg) aiDlg.close(); });
 
-  // 只写进本机 localStorage，覆盖旧值即可换 Key
-  document.getElementById('aiKeySave').addEventListener('click', () => {
+  // 设置区：Key、附加提示词、思考开关，都只写进本机
+  aiSetBtn.addEventListener('click', () => {
+    syncSettingsForm();
+    aiSetBox.hidden = !aiSetBox.hidden;
+    aiSetBtn.textContent = aiSetBox.hidden ? '设置' : '收起';
+  });
+
+  document.getElementById('aiSetSave').addEventListener('click', () => {
     const key = aiKeyInput.value.trim();
-    if (!key) return;
-    aiKey = key;
-    localStorage.setItem(AI_KEY_FIELD, key);
-    aiKeyInput.value = '';
-    aiKeyBox.hidden = true;
+    if (!key) { aiKeyInput.focus(); return; }
+    aiSettings = {
+      key,
+      extraPrompt: aiExtraPrompt.value.trim(),
+      thinking: aiThinking.checked
+    };
+    saveAiSettings();
+    aiSetBox.hidden = true;
     aiInput.disabled = false;
     aiSend.disabled = false;
-    addMsg('bot', 'Key 已保存在本机，可以开始提问了。');
+    addMsg('bot', '设置已保存在本机，可以开始提问了。');
     aiInput.focus();
   });
 
-  // 填错或想换 Key 时重新展开输入区，保存后直接覆盖
-  document.getElementById('aiKeyEdit').addEventListener('click', () => {
-    aiKeyBox.hidden = false;
-    aiKeyInput.value = '';
-    aiKeyInput.focus();
-  });
-
   // 只接受能对应到现有植物、日期合法的操作
+  const actionDate = a => a.date || todayStr();
+
   function isValidAction(a) {
     if (!a || typeof a !== 'object') return false;
     if (a.type === 'add') return typeof a.name === 'string' && a.name.trim().length > 0;
@@ -908,14 +995,17 @@
     if (a.type === 'water') {
       return typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date) && a.date <= todayStr();
     }
-    if (a.type === 'undo') return p.history[0] === todayStr();
+    if (a.type === 'undo') {
+      const d = actionDate(a);
+      return /^\d{4}-\d{2}-\d{2}$/.test(d) && p.history.includes(d);
+    }
     return false;
   }
 
   function describeAction(a) {
     const p = state.plants.find(x => x.id === a.plantId);
     if (a.type === 'water') return `给「${p.name}」记录 ${a.date} 浇水`;
-    if (a.type === 'undo') return `撤销「${p.name}」今天的一次浇水`;
+    if (a.type === 'undo') return `删除「${p.name}」${actionDate(a)} 的浇水记录`;
     return `新增植物「${a.name.trim()}」`;
   }
 
@@ -939,7 +1029,8 @@
         p.history = p.history.slice(0, 60);
         p.lastWateredAt = p.history[0];
       } else if (a.type === 'undo') {
-        p.history.shift();
+        const d = actionDate(a);
+        p.history = p.history.filter(x => x !== d);
         p.lastWateredAt = p.history[0] || null;
       }
     }
@@ -992,21 +1083,26 @@
       aiSend.textContent = '发送';
     };
 
+    // 思考模式与 JSON 输出可以共存；思考模式下 temperature 无效，因而不传
+    const payload = {
+      model: AI_MODEL,
+      response_format: { type: 'json_object' },
+      thinking: { type: aiSettings.thinking ? 'enabled' : 'disabled' },
+      messages: [
+        { role: 'system', content: aiSystemPrompt() },
+        { role: 'user', content: '当前植物数据：' + JSON.stringify(aiContext()) },
+        ...aiHistory,
+        { role: 'user', content: text }
+      ]
+    };
+    if (aiSettings.thinking) payload.reasoning_effort = 'high';
+
     let res;
     try {
       res = await fetch(AI_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiKey },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: AI_SYSTEM },
-            { role: 'user', content: JSON.stringify(aiContext()) },
-            { role: 'user', content: text }
-          ]
-        })
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + aiSettings.key },
+        body: JSON.stringify(payload)
       });
     } catch {
       bubble.textContent = '网络异常，连不上 DeepSeek。';
@@ -1015,7 +1111,11 @@
       return;
     }
     if (!res.ok) {
-      bubble.textContent = res.status === 401 ? 'Key 无效或已失效，请重新填写。' : `请求失败（${res.status}）`;
+      let detail = '';
+      try { detail = (await res.json()).error.message; } catch { detail = ''; }
+      bubble.textContent = res.status === 401
+        ? 'Key 无效或已失效，点右上角「设置」重新填写。'
+        : `请求失败（${res.status}）` + (detail ? '：' + detail : '');
       bubble.classList.add('err');
       finish();
       return;
@@ -1037,15 +1137,32 @@
 
     wait.remove();
     addMsg('bot', parsed.reply);
+    aiHistory.push({ role: 'user', content: text });
+    aiHistory.push({ role: 'assistant', content: parsed.reply });
+    if (aiHistory.length > 8) aiHistory = aiHistory.slice(-8);
     if (Array.isArray(parsed.actions) && parsed.actions.length) showProposal(parsed.actions);
     finish();
   }
 
+  // 输入框随内容增高；Enter 换行，Ctrl/Cmd+Enter 发送
+  function autoGrow() {
+    aiInput.style.height = 'auto';
+    aiInput.style.height = Math.min(aiInput.scrollHeight, 120) + 'px';
+  }
+  aiInput.addEventListener('input', autoGrow);
+  aiInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      aiForm.requestSubmit();
+    }
+  });
+
   aiForm.addEventListener('submit', e => {
     e.preventDefault();
     const text = aiInput.value.trim();
-    if (!text || aiBusy || !aiKey) return;
+    if (!text || aiBusy || !aiSettings.key) return;
     aiInput.value = '';
+    autoGrow();
     askAI(text);
   });
 
